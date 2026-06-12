@@ -1,0 +1,28 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Data / models
+data/
+*.pdf
+*.faiss
+*.index
+models_cache/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Docker volumes
+pgdata/
