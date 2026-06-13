@@ -26,3 +26,6 @@ models_cache/
 
 # Docker volumes
 pgdata/
+
+#test notebooks
+test_notebooks

@@ -1,0 +1,21 @@
+[project]
+name = "biorag"
+version = "0.1.0"
+description = "Enterprise-style RAG system for scientific literature in pharma/biotech"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "psycopg[binary]==3.2.1",
+    "pgvector==0.3.4",
+    "pymupdf==1.24.10",
+    "tiktoken==0.7.0",
+    "sentence-transformers==3.0.1",
+    "torch==2.4.1",
+    "openai==1.46.0",
+    "python-dotenv==1.0.1",
+    "streamlit==1.38.0",
+    "sqlalchemy==2.0.35",
+    "alembic==1.13.2",
+    "ipykernel>=7.3.0",
+]
