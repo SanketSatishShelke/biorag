@@ -33,6 +33,7 @@ jobs:
       POSTGRES_PORT: 5432
       EMBEDDING_MODEL: NeuML/pubmedbert-base-embeddings
       APP_ENV: test
+      DATA_ROOT: /tmp/biorag
 
     steps:
       - name: Checkout code
@@ -48,6 +49,23 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --extra dev
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Enable pgvector extension
+        run: psql -h localhost -U biorag -d biorag -c "CREATE EXTENSION IF NOT EXISTS vector;"
+        env:
+          PGPASSWORD: biorag_dev_password
+
+      - name: Set up test data directory
+        run: mkdir -p /tmp/biorag/raw
+
+      - name: Download test PDF from PubMed Central
+        run: |
+          wget -q -O /tmp/biorag/raw/test_paper.pdf \
+            "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8157143/pdf/41467_2021_Article_23347.pdf"
+          ls -lh /tmp/biorag/raw/test_paper.pdf
 
       - name: Run Alembic migrations
         run: uv run alembic upgrade head
