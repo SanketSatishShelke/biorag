@@ -63,7 +63,7 @@ jobs:
 
       - name: Download test PDF from PubMed Central
         run: |
-          wget -q -O /tmp/biorag/raw/test_paper.pdf \
+          wget -q -O /tmp/biorag/raw/tests/test_paper.pdf \
             "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8157143/pdf/41467_2021_Article_23347.pdf"
           ls -lh /tmp/biorag/raw/tests/test_paper.pdf
 
