@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: biorag
+          POSTGRES_PASSWORD: biorag_dev_password
+          POSTGRES_DB: biorag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_USER: biorag
+      POSTGRES_PASSWORD: biorag_dev_password
+      POSTGRES_DB: biorag
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      EMBEDDING_MODEL: NeuML/pubmedbert-base-embeddings
+      APP_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run Alembic migrations
+        run: uv run alembic upgrade head
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v --cov=ingestion --cov-report=term-missing
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v
