@@ -59,13 +59,13 @@ jobs:
           PGPASSWORD: biorag_dev_password
 
       - name: Set up test data directory
-        run: mkdir -p /tmp/biorag/raw
+        run: mkdir -p /tmp/biorag/raw/tests
 
       - name: Download test PDF from PubMed Central
         run: |
           wget -q -O /tmp/biorag/raw/test_paper.pdf \
             "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8157143/pdf/41467_2021_Article_23347.pdf"
-          ls -lh /tmp/biorag/raw/test_paper.pdf
+          ls -lh /tmp/biorag/raw/tests/test_paper.pdf
 
       - name: Run Alembic migrations
         run: uv run alembic upgrade head
