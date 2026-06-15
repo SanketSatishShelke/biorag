@@ -65,6 +65,7 @@ jobs:
         run: |
           wget -q -O /tmp/biorag/raw/tests/test_paper.pdf \
             "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8157143/pdf/41467_2021_Article_23347.pdf"
+          file /tmp/biorag/raw/tests/test_paper.pdf
           ls -lh /tmp/biorag/raw/tests/test_paper.pdf
 
       - name: Run Alembic migrations

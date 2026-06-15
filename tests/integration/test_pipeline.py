@@ -66,9 +66,14 @@ def sample_pdf_path():
 
     pdfs = [f for f in os.listdir(raw_dir) if f.endswith(".pdf")]
     if not pdfs:
-        pytest.skip("No PDF files found in raw directory")
+        pytest.skip(f"No PDF files found in {raw_dir} — contents: {os.listdir(raw_dir)}")
 
-    return os.path.join(raw_dir, pdfs[0])
+    path = os.path.join(raw_dir, pdfs[0])
+    if os.path.getsize(path) < 1000:
+        pytest.skip(f"PDF too small ({os.path.getsize(path)} bytes) — likely a failed download: {path}")
+
+
+    return path
 
 
 # --- tests ---
