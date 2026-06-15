@@ -58,17 +58,10 @@ jobs:
         env:
           PGPASSWORD: biorag_dev_password
 
-      - name: Set up test data directory
-        run: mkdir -p /tmp/biorag/raw/tests
-
-      - name: Download test PDF
+      - name: Set up test data
         run: |
-          wget -q \
-            --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            -O /tmp/biorag/raw/tests/test_paper.pdf \
-            "https://pmc.ncbi.nlm.nih.gov/articles/PMC8157143/pdf/jcm-10-02129.pdf"
-          file /tmp/biorag/raw/tests/test_paper.pdf
-          ls -lh /tmp/biorag/raw/tests/test_paper.pdf
+          mkdir -p /tmp/biorag/raw/tests
+          cp tests/fixtures/test_paper.pdf /tmp/biorag/raw/tests/
 
       - name: Run Alembic migrations
         run: uv run alembic upgrade head
