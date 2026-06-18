@@ -50,6 +50,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: huggingface-${{ env.EMBEDDING_MODEL }}
+
       - name: Install PostgreSQL client
         run: sudo apt-get install -y postgresql-client
 
