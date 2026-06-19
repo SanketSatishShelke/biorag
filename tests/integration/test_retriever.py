@@ -30,9 +30,7 @@ def db_engine():
 def ingested_document(db_engine):
     """
     Ingest a real PDF once for the entire module.
-    scope="module" — expensive operation, share across all tests in this file.
-    Uses a real commit (not rollback) so all tests in the module see the data.
-    Cleans up after the module finishes.
+    Cleans up after all tests in the module complete.
     """
     data_root = os.getenv("DATA_ROOT", "/mnt/data/biorag")
     raw_dir = os.path.join(data_root, "raw/tests")
@@ -54,7 +52,6 @@ def ingested_document(db_engine):
         doc_id = doc.id
         yield doc_id
     finally:
-        # cleanup: delete test document and its chunks after all tests run
         session.query(Chunk).filter_by(document_id=doc_id).delete()
         session.query(Document).filter_by(id=doc_id).delete()
         session.commit()
@@ -63,7 +60,6 @@ def ingested_document(db_engine):
 
 @pytest.fixture(scope="function")
 def db_session(db_engine):
-    """Read-only session for retrieval tests — no rollback needed since we're only reading."""
     Session = sessionmaker(bind=db_engine)
     session = Session()
     yield session
@@ -76,30 +72,45 @@ def test_retrieve_returns_results(db_session, ingested_document):
         "immune response tumor microenvironment",
         session=db_session,
         top_k=3,
-        namespace="test_retrieval"
+        namespace="test_retrieval",
     )
     assert len(results) > 0
 
 
-def test_retrieve_scores_between_zero_and_one(db_session, ingested_document):
-    """All similarity scores should be valid cosine similarities (0-1)."""
+def test_retrieve_scores_are_positive(db_session, ingested_document):
+    """
+    RRF scores are small positive floats — not bounded to 0-1.
+    Max theoretical RRF score with two signals is 2/(k+0) = ~0.033 at k=60.
+    """
     results = retrieve(
         "immune response tumor microenvironment",
         session=db_session,
         top_k=5,
-        namespace="test_retrieval"
+        namespace="test_retrieval",
     )
     for r in results:
-        assert 0.0 <= r["score"] <= 1.0
+        assert r["score"] > 0.0
+
+
+def test_retrieve_semantic_scores_between_zero_and_one(db_session, ingested_document):
+    """Raw cosine similarity scores (semantic_score) must be bounded 0-1."""
+    results = retrieve(
+        "immune response tumor microenvironment",
+        session=db_session,
+        top_k=5,
+        namespace="test_retrieval",
+    )
+    for r in results:
+        assert 0.0 <= r["semantic_score"] <= 1.0
 
 
 def test_retrieve_results_ordered_by_score(db_session, ingested_document):
-    """Results should be returned in descending similarity order."""
+    """Results should be returned in descending RRF score order."""
     results = retrieve(
         "immune response tumor microenvironment",
         session=db_session,
         top_k=5,
-        namespace="test_retrieval"
+        namespace="test_retrieval",
     )
     scores = [r["score"] for r in results]
     assert scores == sorted(scores, reverse=True)
@@ -111,9 +122,8 @@ def test_retrieve_namespace_isolation(db_session, ingested_document):
         "immune response tumor microenvironment",
         session=db_session,
         top_k=5,
-        namespace="completely_different_namespace"
+        namespace="completely_different_namespace",
     )
-    # none of our test chunks should appear in a different namespace
     doc_ids = [r["document_id"] for r in results]
     assert ingested_document not in doc_ids
 
@@ -124,13 +134,14 @@ def test_retrieve_result_shape(db_session, ingested_document):
         "immune response",
         session=db_session,
         top_k=1,
-        namespace="test_retrieval"
+        namespace="test_retrieval",
     )
     assert len(results) == 1
     r = results[0]
     assert isinstance(r["chunk_id"], int)
     assert isinstance(r["text"], str)
-    assert isinstance(r["score"], float)
+    assert isinstance(r["score"], float)          # RRF score
+    assert isinstance(r["semantic_score"], float)  # raw cosine similarity
     assert isinstance(r["document_id"], int)
     assert isinstance(r["filename"], str)
     assert isinstance(r["page_number"], int)
@@ -139,11 +150,11 @@ def test_retrieve_result_shape(db_session, ingested_document):
 
 
 def test_retrieve_top_k_respected(db_session, ingested_document):
-    """retrieve() should return exactly top_k results when enough chunks exist."""
+    """retrieve() should return at most top_k results."""
     results = retrieve(
         "immune response",
         session=db_session,
         top_k=3,
-        namespace="test_retrieval"
+        namespace="test_retrieval",
     )
     assert len(results) <= 3
