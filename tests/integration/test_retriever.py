@@ -10,6 +10,11 @@ from retrieval.retriever import retrieve
 
 load_dotenv()
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("CI") == "true",
+    reason="Skipping live NIM API call in CI — vcrpy cassettes coming in Phase 3"
+)
+
 
 @pytest.fixture(scope="module")
 def db_engine():
@@ -105,14 +110,14 @@ def test_retrieve_semantic_scores_between_zero_and_one(db_session, ingested_docu
 
 
 def test_retrieve_results_ordered_by_score(db_session, ingested_document):
-    """Results should be returned in descending RRF score order."""
+    """Results should be returned in descending rerank score order."""
     results = retrieve(
         "immune response tumor microenvironment",
         session=db_session,
         top_k=5,
         namespace="test_retrieval",
     )
-    scores = [r["score"] for r in results]
+    scores = [r["rerank_score"] for r in results]
     assert scores == sorted(scores, reverse=True)
 
 
@@ -127,7 +132,6 @@ def test_retrieve_namespace_isolation(db_session, ingested_document):
     doc_ids = [r["document_id"] for r in results]
     assert ingested_document not in doc_ids
 
-
 def test_retrieve_result_shape(db_session, ingested_document):
     """Each result should have all required fields with correct types."""
     results = retrieve(
@@ -140,14 +144,14 @@ def test_retrieve_result_shape(db_session, ingested_document):
     r = results[0]
     assert isinstance(r["chunk_id"], int)
     assert isinstance(r["text"], str)
-    assert isinstance(r["score"], float)          # RRF score
-    assert isinstance(r["semantic_score"], float)  # raw cosine similarity
+    assert isinstance(r["score"], float)
+    assert isinstance(r["semantic_score"], float)
+    assert isinstance(r["rerank_score"], float)
     assert isinstance(r["document_id"], int)
     assert isinstance(r["filename"], str)
     assert isinstance(r["page_number"], int)
     assert isinstance(r["chunk_index"], int)
     assert isinstance(r["namespace"], str)
-
 
 def test_retrieve_top_k_respected(db_session, ingested_document):
     """retrieve() should return at most top_k results."""

@@ -5,6 +5,7 @@ from rank_bm25 import BM25Okapi
 
 from db.models import Chunk, Document
 from ingestion.embedder import embed_query
+from retrieval.reranker import rerank
 
 
 def _tokenize(text: str) -> list[str]:
@@ -25,23 +26,31 @@ def retrieve(
     candidate_pool: int = 20,
 ) -> list[dict]:
     """
-    Hybrid retrieval: semantic search (pgvector) + BM25 reranking via RRF fusion.
+    Hybrid retrieval: semantic search + BM25 + RRF fusion + cross-encoder reranking.
+
+    Pipeline:
+        1. Embed query with PubMedBERT
+        2. Fetch top candidate_pool chunks by cosine similarity (pgvector)
+        3. Score same candidates with BM25 (in-memory, rank-bm25)
+        4. Fuse rankings with RRF (k=60)
+        5. Rerank fused candidates with cross-encoder (NIM rerank-qa-mistral-4b)
+        6. Return top_k
 
     Args:
         query:          the user's natural language question
         session:        SQLAlchemy session
-        top_k:          number of chunks to return after fusion
+        top_k:          number of chunks to return after reranking
         namespace:      if provided, restrict retrieval to this namespace only
-        candidate_pool: size of the semantic candidate pool before BM25 reranking
-                        (must be >= top_k; typical values: 20-50)
+        candidate_pool: size of the semantic candidate pool (must be >= top_k)
 
     Returns:
         list of dicts with keys:
         {
             "chunk_id": int,
             "text": str,
-            "score": float,        # RRF fusion score (higher = more relevant)
-            "semantic_score": float,  # raw cosine similarity for debugging
+            "score": float,         # RRF fusion score
+            "semantic_score": float, # raw cosine similarity
+            "rerank_score": float,   # cross-encoder logit (higher = more relevant)
             "document_id": int,
             "filename": str,
             "page_number": int,
@@ -53,7 +62,7 @@ def retrieve(
 
     query_vector = embed_query(query)
 
-    # ── 2. Semantic search — fetch candidate pool (larger than final top_k) ──
+    # ── 2. Semantic search — fetch candidate pool ─────────────────────────────
 
     similarity = (1 - Chunk.embedding.cosine_distance(query_vector)).label("score")
 
@@ -88,30 +97,26 @@ def retrieve(
     bm25_scores = bm25.get_scores(_tokenize(query))
 
     # ── 4. RRF fusion ─────────────────────────────────────────────────────────
-    # Each chunk gets a rank from semantic search (position in candidates list)
-    # and a rank from BM25 (argsort of bm25_scores descending).
-    # RRF score = 1/(k + rank_semantic) + 1/(k + rank_bm25)
-    # k=60 is standard — dampens the weight of top-ranked results slightly,
-    # making the fusion robust to one signal dominating.
 
     K = 60
 
-    # semantic rank is simply the index in candidates (already sorted by cosine)
     semantic_ranks = {c["chunk_id"]: i for i, c in enumerate(candidates)}
 
-    # bm25 rank: argsort descending → position of each candidate
     bm25_order = sorted(range(len(candidates)), key=lambda i: bm25_scores[i], reverse=True)
     bm25_ranks = {candidates[i]["chunk_id"]: rank for rank, i in enumerate(bm25_order)}
 
     for chunk in candidates:
         cid = chunk["chunk_id"]
-        chunk["semantic_score"] = chunk.pop("score")  # rename raw score for clarity
+        chunk["semantic_score"] = chunk.pop("score")
         chunk["score"] = (
             1 / (K + semantic_ranks[cid]) +
             1 / (K + bm25_ranks[cid])
         )
 
-    # ── 5. Sort by RRF score, return top_k ───────────────────────────────────
+    # ── 5. Cross-encoder reranking ────────────────────────────────────────────
 
-    ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)
-    return ranked[:top_k]
+    reranked = rerank(query, candidates)
+
+    # ── 6. Return top_k ───────────────────────────────────────────────────────
+
+    return reranked[:top_k]
