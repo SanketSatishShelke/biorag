@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from db.base import SessionLocal
 from ingestion.pipeline import ingest_pdf
 from retrieval.retriever import retrieve
+from retrieval.query_rewriter import rewrite_query
 from generation.generator import generate
 
 load_dotenv()
@@ -25,8 +26,6 @@ UPLOAD_DIR = Path(DATA_ROOT) / "raw" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# --- dependency ---
-
 def get_db():
     """
     FastAPI dependency that provides a database session per request.
@@ -39,8 +38,6 @@ def get_db():
     finally:
         session.close()
 
-
-# --- endpoints ---
 
 @app.get("/health")
 def health():
@@ -60,24 +57,18 @@ def ingest_document(
     - Saves the uploaded PDF to DATA_ROOT/raw/uploads/
     - Parses, chunks, embeds, and stores it in pgvector
     - Returns document ID and chunk count
-
-    Args:
-        file:      the PDF file to ingest
-        namespace: ACL namespace for this document (default: "default")
     """
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     save_path = UPLOAD_DIR / file.filename
 
-    # save uploaded file to disk
     with save_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     try:
         doc = ingest_pdf(str(save_path), session=db, namespace=namespace)
     except ValueError as e:
-        # ingest_pdf raises ValueError for empty/unparseable PDFs
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
@@ -108,9 +99,10 @@ def query_documents(
     """
     Query the BioRAG system with a natural language question.
 
-    - Embeds the question using PubMedBERT
-    - Retrieves top_k most similar chunks from pgvector
-    - Generates a cited answer using the NIM LLM
+    Pipeline:
+        1. Rewrite question as precise biomedical retrieval query (LLM)
+        2. Retrieve top_k chunks via hybrid search + reranking
+        3. Generate cited answer using original question + retrieved chunks
 
     Args:
         question:  natural language question
@@ -120,15 +112,20 @@ def query_documents(
     if not question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    chunks = retrieve(question, session=db, top_k=top_k, namespace=namespace)
+    # rewrite for retrieval — original question preserved for generation
+    retrieval_query = rewrite_query(question)
+
+    chunks = retrieve(retrieval_query, session=db, top_k=top_k, namespace=namespace)
 
     if not chunks:
         return {
             "answer": "I cannot find information about this in the provided literature.",
             "sources": [],
             "chunks_retrieved": 0,
+            "retrieval_query": retrieval_query,
         }
 
+    # generate against original question so answer addresses what user asked
     result = generate(question, chunks)
 
     return {
@@ -143,4 +140,5 @@ def query_documents(
             for c in result["sources"]
         ],
         "chunks_retrieved": len(chunks),
+        "retrieval_query": retrieval_query,  # expose for debugging in UI
     }
