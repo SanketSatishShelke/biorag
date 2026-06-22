@@ -13,6 +13,9 @@ from retrieval.retriever import retrieve
 from retrieval.query_rewriter import rewrite_query
 from generation.generator import generate
 
+from guardrails.input_guardrail import check_input, InputGuardrailError
+from guardrails.confidence import check_confidence, LowConfidenceError
+
 load_dotenv()
 
 app = FastAPI(
@@ -112,6 +115,15 @@ def query_documents(
     if not question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    # input guardrail — reject injections and out-of-scope queries
+    try:
+        check_input(question)
+    except InputGuardrailError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": e.label, "message": e.message}
+        )
+
     # rewrite for retrieval — original question preserved for generation
     retrieval_query = rewrite_query(question)
 
@@ -123,6 +135,31 @@ def query_documents(
             "sources": [],
             "chunks_retrieved": 0,
             "retrieval_query": retrieval_query,
+        }
+
+    # confidence check — refuse if best chunk is below relevance threshold
+    try:
+        check_confidence(chunks)
+    except LowConfidenceError as e:
+        return {
+            "answer": (
+                "I found potentially related content but confidence is too low to give "
+                "a reliable answer. The retrieved evidence does not sufficiently address "
+                "your question. Please try rephrasing or check that relevant papers have "
+                "been ingested."
+            ),
+            "sources": [
+                {
+                    "filename": c["filename"],
+                    "page_number": c["page_number"],
+                    "score": round(c["score"], 4),
+                    "text_preview": c["text"][:200],
+                }
+                for c in chunks
+            ],
+            "chunks_retrieved": len(chunks),
+            "retrieval_query": retrieval_query,
+            "confidence": "LOW",
         }
 
     # generate against original question so answer addresses what user asked
