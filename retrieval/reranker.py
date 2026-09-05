@@ -1,20 +1,34 @@
-import os
-import httpx
-from dotenv import load_dotenv
+"""
+Local cross-encoder reranker.
 
-load_dotenv()
+Runs on Saraswati's CPU with no external API dependency. Avoids the
+deprecation/rate-limit/quota risk hit twice in one session with hosted
+rerank endpoints (NVIDIA NIM direct, then OpenRouter's free-tier limits).
 
-RERANKER_URL = "https://ai.api.nvidia.com/v1/retrieval/nvidia/reranking"
-RERANKER_MODEL = "nv-rerank-qa-mistral-4b:1"
-RERANKER_TIMEOUT = 30.0
+Model: cross-encoder/ms-marco-MiniLM-L-6-v2 -- general-purpose, not
+biomedical-tuned. No widely-adopted biomedical cross-encoder exists as a
+drop-in replacement the way PubMedBERT was for embeddings. Evaluating a
+domain-tuned reranker is a candidate Phase 5/6 item once retrieval
+metrics can measure whether it actually helps.
+"""
+from sentence_transformers import CrossEncoder
+
+_model = None  # lazy-loaded, same pattern as the embedder
+
+
+def _get_model() -> CrossEncoder:
+    global _model
+    if _model is None:
+        _model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    return _model
 
 
 def rerank(query: str, candidates: list[dict]) -> list[dict]:
     """
-    Rerank candidate chunks using NVIDIA's nv-rerank-qa-mistral-4b cross-encoder.
+    Rerank candidate chunks using a local cross-encoder.
 
     Takes the RRF-fused candidate list and rescores each (query, chunk) pair
-    using full cross-attention — capturing relevance signals that vector
+    using full cross-attention -- capturing relevance signals that vector
     similarity and BM25 cannot (negation, specificity, conditional relationships).
 
     Args:
@@ -28,29 +42,11 @@ def rerank(query: str, candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
 
-    api_key = os.getenv("NIM_API_KEY")
+    model = _get_model()
+    pairs = [(query, c["text"]) for c in candidates]
+    scores = model.predict(pairs)
 
-    response = httpx.post(
-        RERANKER_URL,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
-        json={
-            "model": RERANKER_MODEL,
-            "query": {"text": query},
-            "passages": [{"text": c["text"]} for c in candidates],
-        },
-        timeout=RERANKER_TIMEOUT,
-    )
-
-    response.raise_for_status()
-    rankings = response.json()["rankings"]
-
-    # rankings is a list of {"index": int, "logit": float}
-    score_map = {r["index"]: r["logit"] for r in rankings}
-
-    for i, chunk in enumerate(candidates):
-        chunk["rerank_score"] = score_map.get(i, float("-inf"))
+    for chunk, score in zip(candidates, scores):
+        chunk["rerank_score"] = float(score)
 
     return sorted(candidates, key=lambda c: c["rerank_score"], reverse=True)
