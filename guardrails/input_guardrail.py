@@ -71,7 +71,7 @@ def check_input(question: str) -> None:
             {"role": "user", "content": question},
         ],
         temperature=0.0,
-        max_tokens=10,  # we only need one word
+        max_tokens=30,  # we only need one word
     )
 
     label = response.choices[0].message.content.strip().upper()

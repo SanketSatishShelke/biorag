@@ -88,6 +88,7 @@ def generate(
         ],
         temperature=0.1,  # low temperature for factual, deterministic responses
         max_tokens=1024,
+        extra_body={"reasoning": {"enabled": False}},
     )
 
     answer = response.choices[0].message.content

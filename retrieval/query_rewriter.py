@@ -59,6 +59,7 @@ def rewrite_query(question: str) -> str:
         ],
         temperature=0.0,  # deterministic — query rewriting is not creative
         max_tokens=128,   # rewritten query should be short
+        extra_body={"reasoning": {"enabled": False}},
     )
 
     rewritten = response.choices[0].message.content.strip()
