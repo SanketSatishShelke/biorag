@@ -2,17 +2,11 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
-def _make_nim_response(n_passages):
-    """Fake NIM ranking response — returns passages in reverse order as a simple test."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "rankings": [
-            {"index": i, "logit": float(n_passages - i)}
-            for i in range(n_passages)
-        ]
-    }
-    mock_response.raise_for_status.return_value = None
-    return mock_response
+def _mock_model(scores):
+    """Fake CrossEncoder — .predict() returns the given scores in order."""
+    model = MagicMock()
+    model.predict.return_value = scores
+    return model
 
 
 def test_rerank_returns_list():
@@ -21,7 +15,7 @@ def test_rerank_returns_list():
         {"chunk_id": 1, "text": "CD8+ T cells mediate antitumor immunity."},
         {"chunk_id": 2, "text": "mTOR signaling regulates cell growth."},
     ]
-    with patch("retrieval.reranker.httpx.post", return_value=_make_nim_response(2)):
+    with patch("retrieval.reranker._get_model", return_value=_mock_model([0.9, 0.5])):
         results = rerank("immune response", candidates)
     assert isinstance(results, list)
 
@@ -32,7 +26,7 @@ def test_rerank_adds_rerank_score():
         {"chunk_id": 1, "text": "CD8+ T cells mediate antitumor immunity."},
         {"chunk_id": 2, "text": "mTOR signaling regulates cell growth."},
     ]
-    with patch("retrieval.reranker.httpx.post", return_value=_make_nim_response(2)):
+    with patch("retrieval.reranker._get_model", return_value=_mock_model([0.9, 0.5])):
         results = rerank("immune response", candidates)
     for r in results:
         assert "rerank_score" in r
@@ -46,7 +40,8 @@ def test_rerank_sorted_by_rerank_score_descending():
         {"chunk_id": 2, "text": "mTOR signaling regulates cell growth."},
         {"chunk_id": 3, "text": "Daratumumab targets CD38 on myeloma cells."},
     ]
-    with patch("retrieval.reranker.httpx.post", return_value=_make_nim_response(3)):
+    # deliberately out-of-order scores to prove rerank() does the sorting, not the mock
+    with patch("retrieval.reranker._get_model", return_value=_mock_model([0.2, 0.9, 0.5])):
         results = rerank("immune response", candidates)
     scores = [r["rerank_score"] for r in results]
     assert scores == sorted(scores, reverse=True)
@@ -54,9 +49,9 @@ def test_rerank_sorted_by_rerank_score_descending():
 
 def test_rerank_empty_candidates_returns_empty():
     from retrieval.reranker import rerank
-    with patch("retrieval.reranker.httpx.post") as mock_post:
+    with patch("retrieval.reranker._get_model") as mock_get_model:
         results = rerank("immune response", [])
-    mock_post.assert_not_called()
+    mock_get_model.assert_not_called()
     assert results == []
 
 
@@ -72,7 +67,7 @@ def test_rerank_preserves_all_candidate_fields():
             "semantic_score": 0.85,
         }
     ]
-    with patch("retrieval.reranker.httpx.post", return_value=_make_nim_response(1)):
+    with patch("retrieval.reranker._get_model", return_value=_mock_model([0.7])):
         results = rerank("immune response", candidates)
     assert results[0]["filename"] == "paper.pdf"
     assert results[0]["semantic_score"] == 0.85
